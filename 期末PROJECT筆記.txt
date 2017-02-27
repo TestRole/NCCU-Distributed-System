@@ -1,0 +1,95 @@
+﻿GCP運用
+	瞭解compute engine是不是一定要用到
+		dataproc建起來就會有compute engine
+		dataproc的node好像就是compute engine
+	用哪種storage最適合，而且可以直接被dataproc用
+		以期末project來說，應該是bigquery丟進google cloud storage，在由dataproc抓 這樣最適合；Bigquery匯出還是csv、JSON或avro三種檔案類型
+	BigQuery的資料集是不是可以直接用到
+		可以，export到Google Storage以後，就可以直接被運用
+	dataproc是不是最好的後端運算平台選項
+		目前看來兼容性很高，而且使用門檻低
+
+期末運作構想
+	構思
+		兩個國家發生潛在衝突事件後，計算country1跟country2相互發生負面事件的時間點、與其他國家(且與肇因國是友邦)發生負面事件的時間點
+		從以前到現在，分析時間間隔是不是有增加或減少的趨勢
+		如果有大幅增減，是不是因為特定技術的發展(如網際網路)或是歷史事件(冷戰結束之類)
+	實際規劃
+		之前是用一段時間內CountryCode出現的次數，再加上NumMentions(資料庫內所有文章提及該事件的次數)，可分析出一段時間內，若一個國家的出現次數多的話，是不是有包含該國家的文章提及次數也會成正比
+			時間欄位一定是有，可能是SortBy時間，[1,2,3]("Day","MonthYear","Year")
+			[7]("Actor1CountryCode")當作主角，先pagerank做一個優先排序，再從優先度大的跑下來，因為是雲端計算的關係，可能可以全部跑完
+			不論他的行為是什麼，算影響力大小，，，可能可以用[29]("QuadClass")做最後的分群(分類)
+			[30,31,32,33,34]("GoldsteinScale","NumMentions","NumSources","NumArticles","AvgTone")
+			30,31,34應該可以都做然後變成一張有多條正相關的圖表，分析各個值是不是具有一定的影響力
+			一段時間內，依照國家Country的出現次數算出PageRank然後看他影響力跟Country的PageRank的相關性
+				影響力當縱軸，橫軸是PageRank由大到小，一堆直直的直條圖，縱軸是一堆點點連線起來
+				影響力只單論那個事件，似乎要想想怎麼算出"國家的影響力"
+					NumMentions是累積的而且因每個case不同，比較適合作為影響力評估的參考值
+
+Coding階段
+	把每個國家的NumMentions累加後平均，發現他的數據跟國家的PageRank毫無關聯
+		改成GoldsteinScale的也完全一樣
+		調整成只計NumMentions總數，趨勢比較接近
+	SaveAsFile的路徑要下：(三個斜線沒有錯)
+		rdd.saveAsTextFile("file:///D:/123")
+		單機都會儲存失敗
+	GCP上用dataproc跑一直失敗
+		幹你娘GCP上的是用逗號分割，單機的是用tab分割；弄了好幾個小時
+
+GDELT欄位資料
+	EVENT ACTION ATTRIBUTES部分資料
+		GoldsteinScale：每个事件将被分配一个在-10到+10之间的数值，用以衡量理论上该事件对国家产生的潜在影响。注意：这个分数的判定是基于事件类型而非事件的细节，因此一个10人参与的暴乱与一个1000人参与的暴乱都将获得同样的分数。
+		NumMentions：该属性值为数据库内所有文章提及该事件的次数。这可以用作评估事件的重要性的方法:讨论该事件越多,越有可能是重要的。如果新闻文章发表之后这个事件引发了讨论，该字段数值会进行更新(例如,一个事件在几周后的可能引发一个舆论热潮，会有无数的新闻文章发表提到原始新闻；在新的发展背景下,某一事件在一周年时可能会有进一步的报道)。
+		NumSources：该属性值为所有提及该事件的数据源数值。同上一个属性一样，这也可以用作评估事件的重要性的方法。该属性值也会在上文相同的情况下进行更新。
+		NumArticles：该属性值为所有提及该事件的文章数。同上一个属性一样，这也可以用作评估事件的重要性的方法。该属性值也会在上文相同的情况下进行更新。
+		AvgTone：该属性值为所有文章提及该事件时“语气”的平均值。分数范围从-100(极其消极的)到+100(极积极的)。共同的价值观分数范围在-10和+10之间，0表示中立。这可以用作过滤事件的“上下文”的方法，从而衡量一个事件的重要性和其影响。例如,轻微负面语气的暴乱事件很可能是一个小事件,而如果是极其负面的语气,这表明可能是一个更严重的事件。而具有积极分数的暴乱事件则可能表明上下文中正在描述一个积极的事(如每天攻击的数量已经大大减少了)。
+	各個欄位的index
+		EVENTID AND DATE ATTRIBUTES			0~4
+		ACTOR1 ATTRIBUTES					5~14
+		ACTOR2 ATTRIBUTES					15~24
+		EVENT ACTION ATTRIBUTES				25~34
+		EVENT GEOGRAPHY Actor1				35~41
+		EVENT GEOGRAPHY Actor2				42~48
+		EVENT GEOGRAPHY Action				49~55
+		DATA MANAGEMENT FIELDS				56~57
+	58個欄位的順序&名字
+		"""Parse a CSV line"""
+		input = StringIO.StringIO(line)
+		reader = csv.DictReader(input, fieldnames=["GlobalEventID", "Day","MonthYear","Year","FractionDate",\
+		"Actor1Code","Actor1Name","Actor1CountryCode","Actor1KnownGroupCode","Actor1EthnicCode","Actor1Religion1Code","Actor1Religion2Code","Actor1Type1Code","Actor1Type2Code","Actor1Type3Code",\
+		"Actor2Code","Actor2Name","Actor2CountryCode","Actor2KnownGroupCode","Actor2EthnicCode","Actor2Religion1Code","Actor2Religion2Code","Actor2Type1Code","Actor2Type2Code","Actor2Type3Code",\
+		"IsRootEvent","EventCode","EventBaseCode","EventRootCode","QuadClass","GoldsteinScale","NumMentions","NumSources","NumArticles","AvgTone",\
+		"Actor1Geo_Type","Actor1Geo_Fullname","Actor1Geo_CountryCode","Actor1Geo_ADM1Code","Actor1Geo_Lat","Actor1Geo_Long","Actor1Geo_FeatureID",\
+		"Actor2Geo_Type","Actor2Geo_Fullname","Actor2Geo_CountryCode","Actor2Geo_ADM2Code","Actor2Geo_Lat","Actor2Geo_Long","Actor2Geo_FeatureID",\
+		"ActionGeo_Type","ActionGeo_Fullname","ActionGeo_CountryCode","ActionGeo_ADM1Code","ActionGeo_Lat","ActionGeo_Long","ActionGeo_FeatureID",\
+		"DATEADDED","SOURCEURL"])
+		return reader.next()
+			定義每個欄位名稱 可是欄位順序不知道為什麼亂掉
+	GDELT五大欄位區塊
+		全域事件資料&資料日期
+		ACTOR屬性
+		事件屬性
+		事件地理資訊
+		最後幾個欄位沒屁用略過
+	CountryCode是ISO 3166-1三位字母		Ref. http://www.globalflag.idv.tw/fl-dm.htm
+
+432個csv檔案，大小在180MB到100MB之間
+
+與其丟進bigtable、cloud SQL或datastore，不如直接讀這些檔案就好
+	Ref.https://cloud.google.com/hadoop/setting-up-a-hadoop-cluster
+
+20161202，HITCON Pacifc，機器學習進行場次，問講師為何沒有結合雲端平台：
+	他們說沒有用到雲端平台
+	每次跑都是類似一個PoC的驗證
+	他們是想先做到確定這個特徵是不是他們想要的東西
+	所以沒有把他丟上去 應該資料集也比較小
+	而且可能也有資安的疑慮
+
+圖形化展示
+	CLOUD DATALAB
+		可以把結果圖形化
+		本機要安裝
+		還沒試過，不知道支不支援big data，如果沒有可能用excel反而會更方便
+	https://www.hcharts.cn/
+		用瀏覽器跑js
+

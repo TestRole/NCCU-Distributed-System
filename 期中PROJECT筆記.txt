@@ -1,0 +1,86 @@
+﻿#----------------------------------001_RDD讀檔、切欄位跟去除標頭
+a1 = sc.textFile("20161031.export.CSV")		#讀檔案
+header = a1.first()
+a2 = a1.filter(lambda x: x != header)		#去除標頭
+a2 = a1.map(lambda a:a.split("\t"))			#以tab切割元素(如果file標頭就把上面的結果拿來運算)
+#	用split()就可以清光所有連續空白，但是GDELT每個tab就代表隔了一個欄位，所以不建議
+
+#----------------------------------002_把GDELT欄位切成依Actor1、2的CountryCode來當作key、value
+a3 = a2.map(lambda x: (x[7], x[17]))			#對應到"Actor1CountryCode"	和	"Actor2CountryCode"
+a3_OverCountry = a3.filter(lambda x: (x[0] != x[1])).filter(lambda x: (x[0] != '')).filter(lambda x: (x[1] != ''))	#清到只剩下兩個不一樣的國家
+'''
+再來應該就可以用pagerank演算法或是其他作法
+例如：
+	groupByKey
+	再從value裡面做count
+	或是，key有那個國家(主詞)，rank就 + M；value有那個國家(受詞))，rank就 + N
+	最後作sum up以後再分析佔的比例
+'''
+
+
+#----------------------------------003_目前用不到_結構化RDD
+from pyspark.sql import *
+import csv
+import StringIO
+def loadRecord(line):
+"""Parse a CSV line"""
+	input = StringIO.StringIO(line)
+	'''
+	EVENTID AND DATE ATTRIBUTES			0~4
+	ACTOR1 ATTRIBUTES					5~14
+	ACTOR2 ATTRIBUTES					15~24
+	EVENT ACTION ATTRIBUTES				25~34
+	EVENT GEOGRAPHY Actor1				35~41
+	EVENT GEOGRAPHY Actor2				42~48
+	EVENT GEOGRAPHY Action				49~55
+	DATA MANAGEMENT FIELDS				56~57
+	CountryCode是ISO 3166-1三位字母		Ref. http://www.globalflag.idv.tw/fl-dm.htm
+	'''
+	reader = csv.DictReader(input, fieldnames=["GlobalEventID", "Day","MonthYear","Year","FractionDate",\
+	"Actor1Code","Actor1Name","Actor1CountryCode","Actor1KnownGroupCode","Actor1EthnicCode","Actor1Religion1Code","Actor1Religion2Code","Actor1Type1Code","Actor1Type2Code","Actor1Type3Code",\
+	"Actor2Code","Actor2Name","Actor2CountryCode","Actor2KnownGroupCode","Actor2EthnicCode","Actor2Religion1Code","Actor2Religion2Code","Actor2Type1Code","Actor2Type2Code","Actor2Type3Code",\
+	"IsRootEvent","EventCode","EventBaseCode","EventRootCode","QuadClass","GoldsteinScale","NumMentions","NumSources","NumArticles","AvgTone",\
+	"Actor1Geo_Type","Actor1Geo_Fullname","Actor1Geo_CountryCode","Actor1Geo_ADM1Code","Actor1Geo_Lat","Actor1Geo_Long","Actor1Geo_FeatureID",\
+	"Actor2Geo_Type","Actor2Geo_Fullname","Actor2Geo_CountryCode","Actor2Geo_ADM2Code","Actor2Geo_Lat","Actor2Geo_Long","Actor2Geo_FeatureID",\
+	"ActionGeo_Type","ActionGeo_Fullname","ActionGeo_CountryCode","ActionGeo_ADM1Code","ActionGeo_Lat","ActionGeo_Long","ActionGeo_FeatureID",\
+	"DATEADDED","SOURCEURL"])
+	return reader.next()
+	定義每個欄位名稱 可是欄位順序不知道為什麼亂掉
+
+a1_csv = sc.textFile(inputFile).map(loadRecord)
+
+#----------------------------------
+#已經用split切好空格以後，用以下方式可以給欄位取名稱，並且包含Row跟column
+from pyspark.sql import *
+a1DF = a1.map(lambda x:
+    Row(
+            test1 = x[0]
+	)
+)
+a1DF.take(3)
+#[Row(test1=u'9'), Row(test1=u'9'), Row(test1=u'9')]
+#----------------------------------
+from pyspark.sql.types import *
+schema = StructType([
+	StructField("name", StringType(), True),
+	StructField("age", IntegerType(), True)])
+df3 = spark.createDataFrame(rdd, schema)
+df3.collect()
+[Row(name=u'Alice', age=1)]
+#----------------------------------
+import pyspark.sql
+spark.createDataFrame(rdd).collect()
+#----------------------------------??
+def loadRecords(fileNameContents):
+"""Load all the records in a given file"""
+	input = StringIO.StringIO(fileNameContents[1])
+	reader = csv.DictReader(input, fieldnames=["name", "favoriteAnimal"])
+	return reader
+fullFileData = sc.wholeTextFiles(inputFile).flatMap(loadRecords)
+#----------------------------------XX
+XXXXXXXX = XXXXXXX.toDF(['column', 'value'])
+#將rdd[column]轉成dataframe
+#無法成功
+"""
+算特定國家對國際間事件的影響力
+"""
